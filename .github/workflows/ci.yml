@@ -1,0 +1,39 @@
+# CI：测试 + 构建 + 类型错误基线门禁
+# 类型基线说明：仓库存在 189 个存量 tsc 错误（typecheck-baseline.txt），
+# CI 只拦截"新增"错误——存量债务逐步清偿时手动把基线调小，禁止调大。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests (vitest)
+        run: npm test
+
+      - name: Typecheck (gate on new errors only)
+        run: |
+          COUNT=$(npx tsc --noEmit 2>&1 | grep -c "error TS" || true)
+          BASE=$(tr -d '[:space:]' < typecheck-baseline.txt)
+          echo "tsc errors: $COUNT (baseline: $BASE)"
+          if [ "$COUNT" -gt "$BASE" ]; then
+            echo "::error::新增了 $((COUNT - BASE)) 个类型错误。请修复，或（仅在确认无误时）下调 typecheck-baseline.txt 后提交。"
+            exit 1
+          fi
+
+      - name: Build extension (wxt)
+        run: npm run build
